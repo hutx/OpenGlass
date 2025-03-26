@@ -53,11 +53,54 @@ export class Agent {
         await this.#lock.inLock(async () => {
             let combined = '';
             let i = 0;
+            // for (let p of this.#photos) {
+            //     combined + '\n\nImage #' + i + '\n\n';
+            //     combined += p.description;
+            //     i++;
+            // }
+            console.log('photes number: ', this.#photos.length - 1);
+            combined = this.#photos[this.#photos.length - 1].description;
+            console.log('Combined', combined);
+            let answer = await llamaFind(question, combined);
+            this.#state.answer = answer;
+            this.#state.loading = false;
+            this.#notify();
+        });
+    }
+
+    async answer2(question: string) {
+        if (this.#state.loading) {
+            return;
+        }
+        this.#state.loading = true;
+        this.#notify();
+        await this.#lock.inLock(async () => {
+            let combined = '';
+            let i = 0;
             for (let p of this.#photos) {
                 combined + '\n\nImage #' + i + '\n\n';
                 combined += p.description;
                 i++;
             }
+            console.log('Combined', combined);
+            let answer = await llamaFind(question, combined);
+            this.#state.answer = answer;
+            this.#state.loading = false;
+            this.#notify();
+        });
+    }
+
+    async answer3(question: string) {
+        if (this.#state.loading) {
+            return;
+        }
+        this.#state.loading = true;
+        this.#notify();
+        await this.#lock.inLock(async () => {
+            let combined = '';
+            let i = 0;
+            for (let p of this.#photos)
+            console.log('Combined', combined);
             let answer = await llamaFind(question, combined);
             this.#state.answer = answer;
             this.#state.loading = false;

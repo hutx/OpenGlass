@@ -1,15 +1,60 @@
 import axios from "axios";
+// import RNFS from "react-native-fs";
 import fs from "fs";
 import { keys } from "../keys";
+import { resolve } from "path";
+import { rejects } from "assert";
+
+export async function transcribe2audio(file: File, format: string, sample_rate: string) {
+
+    try {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('format', format);
+        formData.append('sample_rate', sample_rate);
+
+        const response = await axios.postForm("https://graph.hvyogo.com/tools/v1/transcribe/audio",
+            formData, {
+            headers: {
+                'api-key': `sk-er5PD8UGi0I5QIuU9c73Dd44D4Bb4`,  // Replace YOUR_API_KEY with your actual OpenAI API key
+                'Content-Type': 'multipart/form-data;'
+            },
+        });
+        return response.data;
+    } catch (error) {
+        console.error("Error in transcribeAudio:", error);
+        return null; // or handle error differently
+    }
+}
 
 export async function transcribeAudio(audioPath: string) {
-    const audioBase64 = fs.readFileSync(audioPath, { encoding: 'base64' });
+    let audioBase64;
+
     try {
-        const response = await axios.post("https://api.openai.com/v1/audio/transcriptions", {
+        // 检查是否是Blob URL (以blob:开头)
+        if (audioPath.startsWith('blob:')) {
+            // 从Blob URL获取数据
+            const response = await fetch(audioPath);
+            const blob = await response.blob();
+
+            // 将Blob转换为Base64
+            const arrayBuffer = await blob.arrayBuffer();
+            const bytes = new Uint8Array(arrayBuffer);
+            let binary = '';
+            for (let i = 0; i < bytes.byteLength; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            audioBase64 = btoa(binary);
+        } else {
+            // 原有的文件路径处理方式
+            audioBase64 = await fs.readFileSync(audioPath, { encoding: 'base64' });
+        }
+
+        const response = await axios.post("https://api.siliconflow.cn/v1/audio/transcriptions", {
             audio: audioBase64,
         }, {
             headers: {
-                'Authorization': `Bearer ${keys.openai}`,  // Replace YOUR_API_KEY with your actual OpenAI API key
+                'Authorization': `Bearer sk-rrimmvfpgyrgewzyprftczsfzztulhtlglmtwhtqbaaipjyr`,  // Replace YOUR_API_KEY with your actual OpenAI API key
                 'Content-Type': 'application/json'
             },
         });
@@ -28,18 +73,22 @@ export async function startAudio() {
 
 export async function textToSpeech(text: string) {
     try {
-        const response = await axios.post("https://api.openai.com/v1/audio/speech", {
+        if (!audioContext) {
+            audioContext = new AudioContext();
+        }
+
+        const response = await axios.post("https://graph.hvyogo.com/tools/v1/audio/speech", {
             input: text,    // Use 'input' instead of 'text'
-            voice: "nova",
-            model: "tts-1",
+            model: "cosyvoice-v1",
+            voice: 'longxiaochun',
         }, {
             headers: {
-                'Authorization': `Bearer ${keys.openai}`,  // Replace YOUR_API_KEY with your actual OpenAI API key
+                'api-key': `sk-er5PD8UGi0I5QIuU9c73Dd44D4Bb4`,  // Replace YOUR_API_KEY with your actual OpenAI API key
                 'Content-Type': 'application/json'
             },
             responseType: 'arraybuffer'  // This will handle the binary data correctly
-        });
 
+        });
 
         // Decode the audio data asynchronously
         const audioBuffer = await audioContext.decodeAudioData(response.data);
@@ -58,15 +107,15 @@ export async function textToSpeech(text: string) {
 }
 
 // Function to convert image to base64
-function imageToBase64(path: string) {
-    const image = fs.readFileSync(path, { encoding: 'base64' });
+async function imageToBase64(path: string) {
+    const image = await fs.readFileSync(path, { encoding: 'base64' });
     return `data:image/jpeg;base64,${image}`; // Adjust the MIME type if necessary (e.g., image/png)
 }
 
 export async function describeImage(imagePath: string) {
     const imageBase64 = imageToBase64(imagePath);
     try {
-        const response = await axios.post("https://api.openai.com/v1/images/descriptions", {
+        const response = await axios.post("https://api.fe8.cn/v1/images/descriptions", {
             image: imageBase64,
         }, {
             headers: {
@@ -83,15 +132,15 @@ export async function describeImage(imagePath: string) {
 
 export async function gptRequest(systemPrompt: string, userPrompt: string) {
     try {
-        const response = await axios.post("https://api.openai.com/v1/chat/completions", {
-            model: "gpt-4o",
+        const response = await axios.post(`${keys.oneUrl}/chat/completions`, {
+            model: "qwen2.5-32b-instruct",
             messages: [
                 { role: "system", content: systemPrompt },
                 { role: "user", content: userPrompt },
             ],
         }, {
             headers: {
-                'Authorization': `Bearer ${keys.openai}`,  // Replace YOUR_API_KEY with your actual OpenAI API key
+                'Authorization': `Bearer ${keys.oneKey}`,  // Replace YOUR_API_KEY with your actual OpenAI API key
                 'Content-Type': 'application/json'
             },
         });
@@ -118,7 +167,7 @@ console.info(gptRequest(
                 ONLY use the information in the description of the images to answer the question.
                 BE concise and specific.
             `
-        ,
-            'where is the person?'
+    ,
+    'where is the person?'
 
 ))

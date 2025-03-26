@@ -1,3 +1,17 @@
+/**
+ * @file firmware.ino
+ * @brief OpenGlass 固件代码
+ * 
+ * 该文件包含用于配置和管理 OpenGlass 设备的 BLE 服务、音频录制、照片捕捉和电池状态更新的实现。
+ * 
+ * 主要功能包括：
+ * - BLE 设备初始化和服务配置
+ * - 音频数据的录制和传输
+ * - 照片捕捉及其数据的传输
+ * - 电池电量的监测和更新
+ * 
+ * @note 该代码支持多种音频编码格式，包括 PCM、MuLaw 和 Opus。
+ */
 #define CAMERA_MODEL_XIAO_ESP32S3
 #include <I2S.h>
 #include <BLE2902.h>

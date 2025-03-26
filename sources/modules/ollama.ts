@@ -30,12 +30,29 @@ export async function ollamaInference(args: {
             });
         }
 
+        console.log("converted", converted);
+
         let resp = await axios.post(keys.ollama, {
             stream: false,
             model: args.model,
             messages: converted,
         });
+        console.log("ollama response", resp.data);
         return resp.data;
+
+        // const resp = await axios.post(`${keys.oneUrl}/chat/completions`, {
+        //     model: "moondream:1.8b-v2-fp16",
+        //     // model: "qwen2-vl-7b-instruct",
+        //     messages: converted,
+        // }, {
+        //     headers: {
+        //         'Authorization': `Bearer ${keys.oneKey}`,  // Replace YOUR_API_KEY with your actual OpenAI API key
+        //         'Content-Type': 'application/json'
+        //     },
+        // });
+        // const res = resp.data.choices[0]
+        // console.log("ollama response", res);
+        // return res;
     });
     return trimIdent(((response.message?.content ?? '') as string));
 }
