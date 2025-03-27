@@ -1,6 +1,7 @@
 import axios from "axios";
-// import RNFS from "react-native-fs";
-import fs from "fs";
+import RNFS from "react-native-fs";
+import SoundPlayer from "react-native-sound-player";
+// import fs from "fs";
 import { keys } from "../keys";
 import { resolve } from "path";
 import { rejects } from "assert";
@@ -47,7 +48,7 @@ export async function transcribeAudio(audioPath: string) {
             audioBase64 = btoa(binary);
         } else {
             // 原有的文件路径处理方式
-            audioBase64 = await fs.readFileSync(audioPath, { encoding: 'base64' });
+            audioBase64 = await RNFS.readFile(audioPath, { encoding: 'base64' });
         }
 
         const response = await axios.post("https://api.siliconflow.cn/v1/audio/transcriptions", {
@@ -73,9 +74,9 @@ export async function startAudio() {
 
 export async function textToSpeech(text: string) {
     try {
-        if (!audioContext) {
-            audioContext = new AudioContext();
-        }
+        // if (!audioContext) {
+        //     audioContext = new AudioContext();
+        // }
 
         const response = await axios.post("https://graph.hvyogo.com/tools/v1/audio/speech", {
             input: text,    // Use 'input' instead of 'text'
@@ -90,14 +91,25 @@ export async function textToSpeech(text: string) {
 
         });
 
-        // Decode the audio data asynchronously
-        const audioBuffer = await audioContext.decodeAudioData(response.data);
+        const fileName = `audio_${Date.now()}.mp3`;
+        const filePath = `${RNFS.TemporaryDirectoryPath}/${fileName}`;
+        
+        // 转换 ArrayBuffer 为 Base64
+        // const base64Data = Buffer.from(response.data).toString('base64');
+        
+        // await RNFS.writeFile(filePath, response.data, 'base64');
 
-        // Create an audio source
-        const source = audioContext.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(audioContext.destination);
-        source.start();  // Play the audio immediately
+        // SoundPlayer.playUrl(filePath);
+        // SoundPlayer.setVolume(0.8);
+
+        // // Decode the audio data asynchronously
+        // const audioBuffer = await audioContext.decodeAudioData(response.data);
+
+        // // Create an audio source
+        // const source = audioContext.createBufferSource();
+        // source.buffer = audioBuffer;
+        // source.connect(audioContext.destination);
+        // source.start();  // Play the audio immediately
 
         return response.data;
     } catch (error) {
@@ -106,9 +118,14 @@ export async function textToSpeech(text: string) {
     }
 }
 
+async function detectMimeType(arrayBuffer: ArrayBuffer) {
+    const header = new Uint8Array(arrayBuffer.slice(0, 4));
+    // 实现文件头检测逻辑
+    return 'audio/mpeg'; // 默认返回MP3
+}
 // Function to convert image to base64
 async function imageToBase64(path: string) {
-    const image = await fs.readFileSync(path, { encoding: 'base64' });
+    const image = await RNFS.readFile(path, { encoding: 'base64' });
     return `data:image/jpeg;base64,${image}`; // Adjust the MIME type if necessary (e.g., image/png)
 }
 

@@ -23,9 +23,11 @@
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "react-native": "^0.74.1",
+    "react-native-audio-record": "^0.2.2",
     "react-native-ble-plx": "^3.1.2",
     "react-native-fs": "^2.20.0",
     "react-native-quick-base64": "^2.0.8",
+    "react-native-sound-player": "^0.14.5",
     "react-native-typography": "^1.4.1",
     "react-native-web": "~0.19.6"
   },
