@@ -1,20 +1,21 @@
 import * as React from 'react';
-import { ActivityIndicator, Button, Image, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Button, Image, ScrollView, Text, TextInput, View, Platform } from 'react-native';
 import { rotateImage } from '../modules/imaging';
 import { toBase64Image } from '../utils/base64';
 import { Agent } from '../agent/Agent';
 import { InvalidateSync } from '../utils/invalidateSync';
 import { textToSpeech, transcribe2audio } from '../modules/openai';
+import { BleManager, Characteristic, Device } from 'react-native-ble-plx';
+import { Buffer } from 'buffer';
 
-function usePhotos(device: BluetoothRemoteGATTServer) {
+function usePhotos(device: Device) {
 
     // Subscribe to device
     const [photos, setPhotos] = React.useState<Uint8Array[]>([]);
     const [audios, setAudios] = React.useState<Uint8Array[]>([]);
     const currentAudio = React.useRef<{ chunks: Map<number, Uint8Array>; expectedSize?: number; startTime: number; }>({ chunks: new Map(), startTime: 0 });
     const [subscribed, setSubscribed] = React.useState<boolean>(false);
-    const bluService = React.useRef<BluetoothRemoteGATTService>();
-    const photoControlCharacteristic = React.useRef<BluetoothRemoteGATTCharacteristic>();
+    const photoControlCharacteristic = React.useRef<Characteristic>();
 
     // 在组件顶层定义状态和引用
     const [audioSegments, setAudioSegments] = React.useState<File[]>([]);
@@ -178,7 +179,8 @@ function usePhotos(device: BluetoothRemoteGATTServer) {
 
     React.useEffect(() => {
         (async () => {
-
+            if (!device) return;
+            
             let previousChunk = -1;
             let buffer: Uint8Array = new Uint8Array(0);
             function onChunk(id: number | null, data: Uint8Array) {
@@ -216,117 +218,146 @@ function usePhotos(device: BluetoothRemoteGATTServer) {
                 buffer = new Uint8Array([...buffer, ...data]);
             }
 
-
-            // Subscribe for photo updates
-            // 获取主服务（假设是自定义蓝牙服务）
-            bluService.current = await device.getPrimaryService('19B10000-E8F2-537E-4F6C-D104768A1214'.toLowerCase());
-            // 获取图片数据特征值（用于接收通知）
-            const photoCharacteristic = await bluService.current.getCharacteristic('19b10005-e8f2-537e-4f6c-d104768a1214');
-            // 开启通知功能
-            await photoCharacteristic.startNotifications();
-            // 订阅通知
-            setSubscribed(true);
-            // 开启通知功能
-            photoCharacteristic.addEventListener('characteristicvaluechanged', (e) => {
-                let value = (e.target as BluetoothRemoteGATTCharacteristic).value!;
-                console.log('Received photo chunk', value);
-                let array = new Uint8Array(value.buffer);
-                console.log('Received photo chunk array', array);
-                // 处理数据包：0xff 0xff: 表示数据传输结束 其他情况：前两个字节组合为 packetId，后续字节为数据内容
-                if (array[0] == 0xff && array[1] == 0xff) {
-                    // 结束标记（如：空数据块）
-                    onChunk(null, new Uint8Array());
-                } else {
-                    // 解析数据块ID和内容
-                    let packetId = array[0] + (array[1] << 8);
-                    let packet = array.slice(2);
-                    onChunk(packetId, packet);
-                }
-            });
-            // Start automatic photo capture every 5s
-            // 获取拍照控制特征值（用于发送指令）
-            photoControlCharacteristic.current = await bluService.current.getCharacteristic('19b10006-e8f2-537e-4f6c-d104768a1214');
-            // 发送控制指令：每5秒自动拍照一次
-            console.log('Start automatic photo capture prate', new Uint8Array([0x010]));
-
-            await photoControlCharacteristic.current.writeValue(new Uint8Array([0x0 - 1]));
-            // await photoControlCharacteristic.current.writeValue(new Uint8Array([0x010]));
-
-            // 获取数据特征值（用于接收通知）
-            const audioCharacteristic = await bluService.current.getCharacteristic('19b10001-e8f2-537e-4f6c-d104768a1214');
-            // 开启通知功能
-            await audioCharacteristic.startNotifications();
-
-            const audioContext = new AudioContext();
-            const audioSource = audioContext.createBufferSource();
-            // 开启通知功能
-            audioCharacteristic.addEventListener('characteristicvaluechanged', (e) => {
-                let value = (e.target as BluetoothRemoteGATTCharacteristic).value!;
-                let array = new Uint8Array(value.buffer);
-
-                // 处理数据包：0xff 0xff: 表示数据传输结束 其他情况：前两个字节组合为 packetId，后续字节为数据内容
-                if (array[0] === 0xff && array[1] === 0xff) {
-                    // 结束标记，保存当前音频段
-                    console.log('Audio transmission ended, saving segment');
-                    saveAudioSegment();
-
-                    // 可以在这里添加音频转录处理
-                    if (audioSegments.length > 0) {
-                        const latestAudio = audioSegments[audioSegments.length - 1];
-                        // 创建临时URL以便访问文件
-                        const audioUrl = URL.createObjectURL(latestAudio);
-                        console.log('Processing audio file:', latestAudio.name, 'URL:', audioUrl);
-
-                        // 这里可以添加音频转录代码
-                        // 例如: transcribeAudio(audioUrl).then(result => console.log('Transcription:', result));
-                    }
-                } else {
-                    // 初始化时间戳（如果是新的录音）
-                    if (audioBuffer.current.length === 0) {
-                        recordingStartTime.current = Date.now();
-                        console.log('Started new audio recording at:', new Date(recordingStartTime.current).toISOString());
-                    }
-
-                    const dataView = new DataView(array.buffer);
-
-                    // 处理音频数据 - 转换为Int16Array
-                    // 如果前两个字节是包ID，则从第3个字节开始处理
-                    const hasPacketId = true; // 根据实际情况设置
-                    const dataOffset = hasPacketId ? 2 : 0;
-
-                    // 确保数据长度有效且为偶数（16位采样需要2字节）
-                    const availableBytes = Math.max(0, array.byteLength - dataOffset);
-                    const dataLength = Math.floor(availableBytes / 2); // 16位采样，每个采样2字节
-
-                    // 如果没有有效数据，则跳过处理
-                    if (dataLength <= 0) {
-                        console.warn('Received audio packet with insufficient data length');
-                        return;
-                    }
-
-                    const samples = new Int16Array(dataLength);
-                    for (let i = 0; i < dataLength; i++) {
-                        // 确保不会越界访问
-                        const byteOffset = dataOffset + i * 2;
-                        if (byteOffset + 1 < array.byteLength) { // 确保有足够的字节可读取（需要2字节）
-                            samples[i] = dataView.getInt16(byteOffset, true) * 2; // 应用增益，true表示小端序
-                        } else {
-                            console.warn(`Skipping sample at index ${i} due to insufficient data`);
-                            break; // 中断循环，避免继续处理
+            try {
+                // 获取服务UUID
+                const serviceUUID = '19B10000-E8F2-537E-4F6C-D104768A1214'.toLowerCase();
+                const photoCharUUID = '19b10005-e8f2-537e-4f6c-d104768a1214';
+                const photoControlCharUUID = '19b10006-e8f2-537e-4f6c-d104768a1214';
+                const audioCharUUID = '19b10001-e8f2-537e-4f6c-d104768a1214';
+                
+                console.log('开始监听特征值变化...');
+                
+                // 监听图片数据特征值
+                device.monitorCharacteristicForService(
+                    serviceUUID,
+                    photoCharUUID,
+                    (error, characteristic) => {
+                        if (error) {
+                            console.error('监听图片特征值出错:', error);
+                            return;
+                        }
+                        
+                        if (characteristic?.value) {
+                            const base64Value = characteristic.value;
+                            const buffer = Buffer.from(base64Value, 'base64');
+                            const array = new Uint8Array(buffer);
+                            
+                            console.log('Received photo chunk array', array);
+                            
+                            // 处理数据包：0xff 0xff: 表示数据传输结束 其他情况：前两个字节组合为 packetId，后续字节为数据内容
+                            if (array[0] == 0xff && array[1] == 0xff) {
+                                // 结束标记（如：空数据块）
+                                onChunk(null, new Uint8Array());
+                            } else {
+                                // 解析数据块ID和内容
+                                let packetId = array[0] + (array[1] << 8);
+                                let packet = array.slice(2);
+                                onChunk(packetId, packet);
+                            }
                         }
                     }
-
-                    // 累积音频数据
-                    audioBuffer.current.push(samples);
-                    currentDuration.current += samples.length / SAMPLE_RATE;
-
-                    // 达到30秒触发保存
-                    if (currentDuration.current >= 30) {
-                        console.log('Reached 30s duration, saving audio segment');
-                        saveAudioSegment();
-                    }
+                );
+                
+                // 获取拍照控制特征值
+                const photoControlChar = await device.readCharacteristicForService(
+                    serviceUUID,
+                    photoControlCharUUID
+                );
+                
+                photoControlCharacteristic.current = photoControlChar;
+                console.log('获取到拍照控制特征值');
+                
+                // 发送控制指令
+                if (photoControlCharacteristic.current) {
+                    await photoControlCharacteristic.current.writeWithResponse(
+                        Buffer.from([0x0-1]).toString('base64')
+                    );
+                    console.log('已发送拍照控制指令');
                 }
-            });
+                
+                // 监听音频数据特征值
+                device.monitorCharacteristicForService(
+                    serviceUUID,
+                    audioCharUUID,
+                    (error, characteristic) => {
+                        if (error) {
+                            console.error('监听音频特征值出错:', error);
+                            return;
+                        }
+                        
+                        if (characteristic?.value) {
+                            const base64Value = characteristic.value;
+                            const buffer = Buffer.from(base64Value, 'base64');
+                            const array = new Uint8Array(buffer);
+
+                            // 处理数据包：0xff 0xff: 表示数据传输结束 其他情况：前两个字节组合为 packetId，后续字节为数据内容
+                            if (array[0] === 0xff && array[1] === 0xff) {
+                                // 结束标记，保存当前音频段
+                                console.log('Audio transmission ended, saving segment');
+                                saveAudioSegment();
+
+                                // 可以在这里添加音频转录处理
+                                if (audioSegments.length > 0) {
+                                    const latestAudio = audioSegments[audioSegments.length - 1];
+                                    console.log('Processing audio file:', latestAudio.name);
+                                    // 这里可以添加音频转录代码
+                                }
+                            } else {
+                                // 初始化时间戳（如果是新的录音）
+                                if (audioBuffer.current.length === 0) {
+                                    recordingStartTime.current = Date.now();
+                                    console.log('Started new audio recording at:', new Date(recordingStartTime.current).toISOString());
+                                }
+
+                                // 创建DataView来处理二进制数据
+                                const dataView = new DataView(buffer.buffer);
+
+                                // 处理音频数据 - 转换为Int16Array
+                                // 如果前两个字节是包ID，则从第3个字节开始处理
+                                const hasPacketId = true; // 根据实际情况设置
+                                const dataOffset = hasPacketId ? 2 : 0;
+
+                                // 确保数据长度有效且为偶数（16位采样需要2字节）
+                                const availableBytes = Math.max(0, array.byteLength - dataOffset);
+                                const dataLength = Math.floor(availableBytes / 2); // 16位采样，每个采样2字节
+
+                                // 如果没有有效数据，则跳过处理
+                                if (dataLength <= 0) {
+                                    console.warn('Received audio packet with insufficient data length');
+                                    return;
+                                }
+
+                                const samples = new Int16Array(dataLength);
+                                for (let i = 0; i < dataLength; i++) {
+                                    // 确保不会越界访问
+                                    const byteOffset = dataOffset + i * 2;
+                                    if (byteOffset + 1 < array.byteLength) { // 确保有足够的字节可读取（需要2字节）
+                                        samples[i] = dataView.getInt16(byteOffset, true) * 2; // 应用增益，true表示小端序
+                                    } else {
+                                        console.warn(`Skipping sample at index ${i} due to insufficient data`);
+                                        break; // 中断循环，避免继续处理
+                                    }
+                                }
+
+                                // 累积音频数据
+                                audioBuffer.current.push(samples);
+                                currentDuration.current += samples.length / SAMPLE_RATE;
+
+                                // 达到30秒触发保存
+                                if (currentDuration.current >= 30) {
+                                    console.log('Reached 30s duration, saving audio segment');
+                                    saveAudioSegment();
+                                }
+                            }
+                        }
+                    }
+                );
+                
+                setSubscribed(true);
+                
+            } catch (error) {
+                console.error('设置BLE监听时出错:', error);
+            }
         })();
     }, []);
 
@@ -432,15 +463,8 @@ function usePhotos(device: BluetoothRemoteGATTServer) {
     return [subscribed, photos, photoControlCharacteristic, isRecording, startRecording, stopRecording, audioSegments2] as const;
 }
 
-interface AudioState {
-    mediaRecorder: MediaRecorder | null;
-    stream: MediaStream | null;
-    audioChunks: Blob[];
-    recordStartTime: number | null;
-    isRecording: boolean;
-}
 
-export const DeviceView = React.memo((props: { device: BluetoothRemoteGATTServer }) => {
+export const DeviceView = React.memo((props: { device: Device }) => {
     const [subscribed, photos, photoControlCharacteristic, isRecording, startRecording, stopRecording, audioSegments2] = usePhotos(props.device);
     const agent = React.useMemo(() => new Agent(), []);
     const agentState = agent.use();
@@ -489,7 +513,9 @@ export const DeviceView = React.memo((props: { device: BluetoothRemoteGATTServer
                     placeholderTextColor={'#888'}
                     readOnly={agentState.loading}
                     onSubmitEditing={async (e) => {
-                        await photoControlCharacteristic.current?.writeValue(new Uint8Array([0x0 - 1]));
+                        await photoControlCharacteristic.current?.writeWithResponse(
+                            Buffer.from([0x0-1]).toString('base64')
+                        );
                         setTimeout(() => { agent.answer(e.nativeEvent.text); }, 1000);
                     }}
                 />
@@ -517,7 +543,9 @@ export const DeviceView = React.memo((props: { device: BluetoothRemoteGATTServer
                             } else {
                                 // 开始录音
                                 startRecording();
-                                await photoControlCharacteristic.current?.writeValue(new Uint8Array([0x0 - 1]));
+                                await photoControlCharacteristic.current?.writeWithResponse(
+                                    Buffer.from([0x0-1]).toString('base64')
+                                );
                             }
                         }}
                         color={isRecording ? '#ff4040' : '#2196F3'}

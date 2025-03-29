@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { BleManager } from 'react-native-ble-plx'
-import { PermissionsAndroid, Platform } from 'react-native';
+import { BleManager, Device } from 'react-native-ble-plx'
+import { PermissionsAndroid, Platform, NativeModules, NativeEventEmitter } from 'react-native';
 
 const bleManager = new BleManager();
 
@@ -24,61 +24,64 @@ const requestAndroidPermissions = async () => {
     return true;
 };
 
-export function useDevice(): [BluetoothRemoteGATTServer | null, () => Promise<void>] {
+export function useDevice(): [Device | null, () => Promise<void>] {
 
     // Create state
-    let deviceRef = React.useRef<BluetoothRemoteGATTServer | null>(null);
-    let [device, setDevice] = React.useState<BluetoothRemoteGATTServer | null>(null);
+    let deviceRef = React.useRef<Device | null>(null);
+    let [device, setDevice] = React.useState<Device | null>(null);
 
     // Create callback
     const doConnect = React.useCallback(async () => {
         try {
-            if (Platform.OS === 'web') {
-                // Web 平台使用 Web Bluetooth API
-                let connected = await navigator.bluetooth.requestDevice({
-                    filters: [{ name: 'OpenGlass' }],
-                    optionalServices: ['19B10000-E8F2-537E-4F6C-D104768A1214'.toLowerCase()],
-                });
-                let gatt: BluetoothRemoteGATTServer = await connected.gatt!.connect();
-                deviceRef.current = gatt;
-                setDevice(gatt);
-            } else {
-                // iOS 和 Android 平台
-                // 检查权限
-                const hasPermission = await requestAndroidPermissions();
-                if (!hasPermission) {
-                    throw new Error('未获得蓝牙权限');
-                }
-                try {
-                    // 扫描设备
-                    await bleManager.startDeviceScan(['19B10000-E8F2-537E-4F6C-D104768A1214'.toLowerCase()], {legacyScan: true}, (error, device) => {
+            // 检查权限
+            const hasPermission = await requestAndroidPermissions();
+            if (!hasPermission) {
+                throw new Error('未获得蓝牙权限');
+            }
+            
+            try {
+                // 确保之前的扫描已停止
+                bleManager.stopDeviceScan();
+                
+                // 扫描设备
+                console.log('开始扫描蓝牙设备...');
+                await bleManager.startDeviceScan(
+                    ['19B10000-E8F2-537E-4F6C-D104768A1214'.toLowerCase()], 
+                    { allowDuplicates: false },
+                    (error, device) => {
                         if (error) {
                             console.error('扫描设备时出错:', error);
                             return;
                         }
+                        
                         if (device?.name === 'OpenGlass') {
+                            console.log('找到OpenGlass设备:', device.id, device.name);
                             bleManager.stopDeviceScan();
+                            
+                            // 连接设备
                             device.connect()
-                                .then(device => device.discoverAllServicesAndCharacteristics())
-                                .then(device => {
-                                    deviceRef.current = device as any;
-                                    setDevice(device as any);
+                                .then(connectedDevice => {
+                                    console.log('已连接到设备');
+                                    return connectedDevice.discoverAllServicesAndCharacteristics();
+                                })
+                                .then(discoveredDevice => {
+                                    console.log('已发现所有服务和特征');
+                                    deviceRef.current = discoveredDevice;
+                                    setDevice(discoveredDevice);
                                 })
                                 .catch(error => {
                                     console.error('初始化BLE时出错:', error);
                                 });
                         }
-                    });
-
-                } catch (e) {
-                    console.error('初始化BLE时出错:', e);
-                }
-
+                    }
+                );
+            } catch (e) {
+                console.error('初始化BLE时出错:', e);
             }
         } catch (e) {
             console.error(e);
         }
-    }, [device]);
+    }, []);
 
     // Return
     return [device, doConnect];
